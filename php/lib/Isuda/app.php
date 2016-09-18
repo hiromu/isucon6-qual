@@ -43,7 +43,32 @@ $container = new class extends \Slim\Container {
 	$trie = trie_filter_new();	
 	for ($i = 0; $i < count($keywords); $i++)
 		trie_filter_store($trie, $keywords[$i]['keyword']);
+	trie_filter_save($trie, __DIR__ . '/trie.save.orig');
+	copy(__DIR__ . '/trie.save.orig', __DIR__ . '/trie.save');
+    }
+
+    public function add_trie($keyword) {
+	$trie = trie_filter_load(__DIR__ . '/trie.save');
+	if (!$trie)
+		return;
+	trie_filter_store($trie, $keyword);
+	trie_filter_save($trie, __DIR__ . '/trie.save');
+    }
+
+    public function load_trie() {
+        $trie = trie_filter_load(__DIR__ . '/trie.save');
+	if (!$trie)
+		$trie = trie_filter_load(__DIR__ . '/trie.save.orig');
 	return $trie;
+	/*
+	$keywords = $this->dbh->select_all(
+            'SELECT keyword FROM entry'
+        );
+	$trie = trie_filter_new();	
+	for ($i = 0; $i < count($keywords); $i++)
+		trie_filter_store($trie, $keywords[$i]['keyword']);
+	return $trie;
+	*/
     }
 
     public function htmlify($trie, $content) {
@@ -91,19 +116,6 @@ $container = new class extends \Slim\Container {
 		$offset += strlen($link) - $matches[$key][1];
 	}
 
-	/*
-	$matches = trie_filter_search_all($trie, $content);
-	$offset = 0;
-	for ($i = 0; $i < count($matches); $i++) {
-		if ($i > 0 && $matches[$i - 1][0] + $matches[$i - 1][1] > $matches[$i][0])
-			continue;
-		$kw = substr($content, $matches[$i][0] + $offset, $matches[$i][1]);
-		$link = sprintf('<a href="%s">%s</a>', '/keyword/' . rawurlencode($kw), html_escape($kw));
-		$content = substr($content, 0, $matches[$i][0] + $offset) . $link . substr($content, $matches[$i][0] + $matches[$i][1] + $offset);
-		$offset += strlen($link) - $matches[$i][1];
-	}
-	*/
-
         return nl2br($content, true);
     }
 };
@@ -145,6 +157,7 @@ $app->get('/initialize', function (Request $req, Response $c) {
         'DELETE FROM entry WHERE id > 7101'
     );
     $this->dbh->query('TRUNCATE star');
+    $this->make_trie();
     return render_json($c, [
         'result' => 'ok',
     ]);
@@ -163,12 +176,18 @@ $app->get('/', function (Request $req, Response $c) {
             'GROUP BY s.keyword'.
 	') AS x '.
 	'ON x.keyword = e.keyword '.
+	'WHERE e.id IN (SELECT * FROM ('.
+	    'SELECT id FROM entry ORDER BY updated_at DESC '.
+	    "LIMIT $PER_PAGE OFFSET $offset".
+	') AS t)'
+	/*
         'ORDER BY updated_at DESC '.
         "LIMIT $PER_PAGE ".
         "OFFSET $offset"
+	*/
     );
 
-    $trie = $this->make_trie();
+    $trie = $this->load_trie();
     foreach ($entries as &$entry) {
         $entry['html']  = $this->htmlify($trie, $entry['description']);
         if ($entry['stars'] === NULL) {
@@ -209,6 +228,8 @@ $app->post('/keyword', function (Request $req, Response $c) {
         .' ON DUPLICATE KEY UPDATE'
         .' author_id = ?, keyword = ?, description = ?, updated_at = NOW()'
     , $user_id, $keyword, $description, $user_id, $keyword, $description);
+
+    $this->add_trie($keyword);
 
     return $c->withRedirect('/');
 })->add($mw['authenticate'])->add($mw['set_name']);
@@ -278,10 +299,6 @@ $app->get('/keyword/{keyword}', function (Request $req, Response $c) {
     if ($keyword === null) return $c->withStatus(400);
 
     $entry = $this->dbh->select_row(
-        'SELECT * FROM entry'
-        .' WHERE keyword = ?'
-    , $keyword);
-    $entry = $this->dbh->select_row(
         'SELECT e.*, x.stars FROM entry as e '.
         'LEFT JOIN ('.
             'SELECT s.keyword, GROUP_CONCAT(s.user_name) AS stars '.
@@ -293,7 +310,7 @@ $app->get('/keyword/{keyword}', function (Request $req, Response $c) {
     , $keyword);
     if (empty($entry)) return $c->withStatus(404);
 
-    $entry['html'] = $this->htmlify($this->make_trie(), $entry['description']);
+    $entry['html'] = $this->htmlify($this->load_trie(), $entry['description']);
     if ($entry['stars'] === NULL) {
         $entry['stars'] = [];
     } else {
@@ -351,10 +368,11 @@ $app->post('/stars', function (Request $req, Response $c) {
 });
 
 function is_spam_contents($content, $keyword) {
-    foreach(file('spams.txt', FILE_IGNORE_NEW_LINES) as $spam_key) {
+    foreach(file(__DIR__ . '/spams.txt', FILE_IGNORE_NEW_LINES) as $spam_key) {
         if ($spam_key == "[OK] $keyword") return false;
         if ($spam_key == "[NG] $keyword") return true;
     }
+    return false;
 
     $ua = new \GuzzleHttp\Client;
     $res = $ua->request('POST', config('isupam_origin'), [
@@ -362,10 +380,10 @@ function is_spam_contents($content, $keyword) {
     ])->getBody();
     $data = json_decode($res, true);
     if ($data['valid']) {
-        file_put_contents('spams.txt', "[OK] $keyword\n", FILE_APPEND);
+        file_put_contents(__DIR__ . '/spams.txt', "[OK] $keyword\n", FILE_APPEND);
         return false;
     } else {
-        file_put_contents('spams.txt', "[NG] $keyword\n", FILE_APPEND);
+        file_put_contents(__DIR__ . '/spams.txt', "[NG] $keyword\n", FILE_APPEND);
         return true;
     }
 }
