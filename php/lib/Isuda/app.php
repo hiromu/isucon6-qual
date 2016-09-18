@@ -63,14 +63,6 @@ $container = new class extends \Slim\Container {
         }
         return nl2br($content, true);
     }
-
-    public function load_stars($keyword) {
-        $stars = $this->dbh->select_all(
-            'SELECT * FROM star WHERE keyword = ?'
-        , $keyword);
-
-        return $stars;
-    }
 };
 $container['view'] = function ($container) {
     $view = new \Slim\Views\Twig($_ENV['PHP_TEMPLATE_PATH'], []);
@@ -243,9 +235,24 @@ $app->get('/keyword/{keyword}', function (Request $req, Response $c) {
         'SELECT * FROM entry'
         .' WHERE keyword = ?'
     , $keyword);
+    $entry = $this->dbh->select_row(
+        'SELECT e.*, x.stars FROM entry as e '.
+        'LEFT JOIN ('.
+            'SELECT s.keyword, GROUP_CONCAT(s.user_name) AS stars '.
+            'FROM star AS s '.
+            'GROUP BY s.keyword'.
+	') AS x '.
+	'ON x.keyword = e.keyword '.
+        'WHERE e.keyword = ?'
+    , $keyword);
     if (empty($entry)) return $c->withStatus(404);
+
     $entry['html'] = $this->htmlify($entry['description']);
-    $entry['stars'] = $this->load_stars($entry['keyword']);
+    if ($entry['stars'] === NULL) {
+        $entry['stars'] = [];
+    } else {
+        $entry['stars'] = explode(',', $entry['stars']);
+    }
 
     return $this->view->render($c, 'keyword.twig', [
         'entry' => $entry, 'stash' => $this->get('stash')
