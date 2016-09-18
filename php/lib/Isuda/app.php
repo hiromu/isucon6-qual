@@ -37,6 +37,7 @@ $container = new class extends \Slim\Container {
     }
 
     public function make_trie() {
+	/*
 	$keywords = $this->dbh->select_all(
             'SELECT keyword FROM entry'
         );
@@ -45,6 +46,7 @@ $container = new class extends \Slim\Container {
 		trie_filter_store($trie, $keywords[$i]['keyword']);
 	trie_filter_save($trie, __DIR__ . '/trie.save.orig');
 	copy(__DIR__ . '/trie.save.orig', __DIR__ . '/trie.save');
+	*/
     }
 
     public function add_trie($keyword) {
@@ -53,6 +55,7 @@ $container = new class extends \Slim\Container {
 		return;
 	trie_filter_store($trie, $keyword);
 	trie_filter_save($trie, __DIR__ . '/trie.save');
+	return $trie;
     }
 
     public function load_trie() {
@@ -158,6 +161,16 @@ $app->get('/initialize', function (Request $req, Response $c) {
     );
     $this->dbh->query('TRUNCATE star');
     $this->make_trie();
+
+    /*
+    $trie = $this->load_trie();
+    $entries = $this->dbh->select_all('SELECT id, description FROM entry');
+    foreach ($entries as $entry) {
+	$this->dbh->query('UPDATE entry SET compile = ? WHERE id = ?',
+		$this->htmlify($trie, $entry['description']), $entry['id']);
+    }
+    */
+
     return render_json($c, [
         'result' => 'ok',
     ]);
@@ -169,7 +182,7 @@ $app->get('/', function (Request $req, Response $c) {
 
     $offset = $PER_PAGE * ($page-1);
     $entries = $this->dbh->select_all(
-        'SELECT e.*, x.stars FROM entry as e '.
+        'SELECT e.id, e.author_id, e.keyword, e.compile, e.updated_at, e.created_at, x.stars FROM entry as e '.
         'LEFT JOIN ('.
             'SELECT s.keyword, GROUP_CONCAT(s.user_name) AS stars '.
             'FROM star AS s '.
@@ -187,9 +200,10 @@ $app->get('/', function (Request $req, Response $c) {
 	*/
     );
 
-    $trie = $this->load_trie();
+    //$trie = $this->load_trie();
     foreach ($entries as &$entry) {
-        $entry['html']  = $this->htmlify($trie, $entry['description']);
+        //$entry['html'] = $this->htmlify($trie, $entry['description']);
+	$entry['html'] = $entry['compile'];
         if ($entry['stars'] === NULL) {
             $entry['stars'] = [];
         } else {
@@ -222,14 +236,14 @@ $app->post('/keyword', function (Request $req, Response $c) {
     if (is_spam_contents($keyword . $description, $keyword)) {
         return $c->withStatus(400)->write('SPAM!');
     }
+
+    $trie = $this->add_trie($keyword);
     $this->dbh->query(
-        'INSERT INTO entry (author_id, keyword, description, created_at, updated_at)'
-        .' VALUES (?, ?, ?, NOW(), NOW())'
+        'INSERT INTO entry (author_id, keyword, description, compile, created_at, updated_at)'
+        .' VALUES (?, ?, ?, ?, NOW(), NOW())'
         .' ON DUPLICATE KEY UPDATE'
         .' author_id = ?, keyword = ?, description = ?, updated_at = NOW()'
-    , $user_id, $keyword, $description, $user_id, $keyword, $description);
-
-    $this->add_trie($keyword);
+    , $user_id, $keyword, $description, $this->htmlify($trie, $description), $user_id, $keyword, $description);
 
     return $c->withRedirect('/');
 })->add($mw['authenticate'])->add($mw['set_name']);
@@ -299,7 +313,7 @@ $app->get('/keyword/{keyword}', function (Request $req, Response $c) {
     if ($keyword === null) return $c->withStatus(400);
 
     $entry = $this->dbh->select_row(
-        'SELECT e.*, x.stars FROM entry as e '.
+        'SELECT e.id, e.author_id, e.keyword, e.compile, e.updated_at, e.created_at, x.stars FROM entry as e '.
         'LEFT JOIN ('.
             'SELECT s.keyword, GROUP_CONCAT(s.user_name) AS stars '.
             'FROM star AS s '.
@@ -310,7 +324,8 @@ $app->get('/keyword/{keyword}', function (Request $req, Response $c) {
     , $keyword);
     if (empty($entry)) return $c->withStatus(404);
 
-    $entry['html'] = $this->htmlify($this->load_trie(), $entry['description']);
+    //$entry['html'] = $this->htmlify($this->load_trie(), $entry['description']);
+    $entry['html'] = $entry['compile'];
     if ($entry['stars'] === NULL) {
         $entry['stars'] = [];
     } else {
@@ -368,10 +383,15 @@ $app->post('/stars', function (Request $req, Response $c) {
 });
 
 function is_spam_contents($content, $keyword) {
-    foreach(file(__DIR__ . '/spams.txt', FILE_IGNORE_NEW_LINES) as $spam_key) {
-        if ($spam_key == "[OK] $keyword") return false;
-        if ($spam_key == "[NG] $keyword") return true;
-    }
+    #foreach(file(__DIR__ . '/spams.txt', FILE_IGNORE_NEW_LINES) as $spam_key) {
+    #    if ($spam_key == "[OK] $keyword") return false;
+    #    if ($spam_key == "[NG] $keyword") return true;
+    #}
+    #foreach(file(__DIR__ . '/ng.txt', FILE_IGNORE_NEW_LINES) as $spam_key) {
+    #     if ($spam_key == "[NG] $keyword") return true;
+    #}
+    require_once(__DIR__ . '/ng.php');
+    if (in_array($keyword, $spams)) return true;
     return false;
 
     $ua = new \GuzzleHttp\Client;

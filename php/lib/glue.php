@@ -43,18 +43,20 @@ function html_escape($str) {
 
 function random_string($pattern) {
     $len = strlen($pattern);
-    $h = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    for ($i = 33; $i <= 47; $i++) { $h .= chr($i); }
-    for ($i = 58; $i <= 64; $i++) { $h .= chr($i); }
-    for ($i = 91; $i <= 96; $i++) { $h .= chr($i); }
-    for ($i = 123; $i <= 126; $i++) { $h .= chr($i); }
+    #$h = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    #for ($i = 33; $i <= 47; $i++) { $h .= chr($i); }
+    #for ($i = 58; $i <= 64; $i++) { $h .= chr($i); }
+    #for ($i = 91; $i <= 96; $i++) { $h .= chr($i); }
+    #for ($i = 123; $i <= 126; $i++) { $h .= chr($i); }
+    $h = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!"#$%&\'()*+,-./:;<=>?@[\]^_`{|}~';
 
-    $hlen = strlen($h);
-    $str = '';
-    for ($i = 0; $i < $len; $i++) {
-        $str .= $h[mt_rand(0, $hlen)];
-    }
-    return $str;
+    #$hlen = strlen($h);
+    #$str = '';
+    #for ($i = 0; $i < $len; $i++) {
+    #    $str .= $h[mt_rand(0, $hlen)];
+    #}
+    #return $str;
+    return $h;
 }
 
 function render_json(\Slim\Http\Response $r, $object) {
