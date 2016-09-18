@@ -123,7 +123,10 @@ $container = new class extends \Slim\Container {
     }
 };
 $container['view'] = function ($container) {
-    $view = new \Slim\Views\Twig($_ENV['PHP_TEMPLATE_PATH'], []);
+    $view = new \Slim\Views\Twig($_ENV['PHP_TEMPLATE_PATH'], [
+        'debug' => false,
+        'cache' => './cache',
+    ]);
     $view->addExtension(new \Slim\Views\TwigExtension(
         $container['router'],
         $container['request']->getUri()
