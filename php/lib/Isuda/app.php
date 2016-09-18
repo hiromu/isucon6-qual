@@ -36,31 +36,74 @@ $container = new class extends \Slim\Container {
         ));
     }
 
-    public function htmlify($content) {
+    public function make_trie() {
+	$keywords = $this->dbh->select_all(
+            'SELECT keyword FROM entry'
+        );
+	$trie = trie_filter_new();	
+	for ($i = 0; $i < count($keywords); $i++)
+		trie_filter_store($trie, $keywords[$i]['keyword']);
+	return $trie;
+    }
+
+    public function htmlify($trie, $content) {
         if (!isset($content)) {
             return '';
         }
-        $keywords = $this->dbh->select_all(
-            'SELECT * FROM entry ORDER BY CHARACTER_LENGTH(keyword) DESC'
-        );
-        $kw2sha = [];
 
-        // NOTE: avoid pcre limitation "regular expression is too large at offset"
-        for ($i = 0; !empty($kwtmp = array_slice($keywords, 500 * $i, 500)); $i++) {
-            $re = implode('|', array_map(function ($keyword) { return quotemeta($keyword['keyword']); }, $kwtmp));
-            preg_replace_callback("/($re)/", function ($m) use (&$kw2sha) {
-                $kw = $m[1];
-                return $kw2sha[$kw] = "isuda_" . sha1($kw);
-            }, $content);
-        }
-        $content = strtr($content, $kw2sha);
-        $content = html_escape($content);
-        foreach ($kw2sha as $kw => $hash) {
-            $url = '/keyword/' . rawurlencode($kw);
-            $link = sprintf('<a href="%s">%s</a>', $url, html_escape($kw));
+	$matches = trie_filter_search_all($trie, $content);
+	uasort($matches, function ($a, $b) {
+		if ($a[0] < $b[0])
+			return -1;
+		else if ($a[0] > $b[0])
+			return 1;
+		else if ($a[1] < $b[1])
+			return 1;
+		else if ($a[1] > $b[1])
+			return -1;
+		return 0;
+	});
 
-            $content = preg_replace("/{$hash}/", $link, $content);
-        }
+	$ignore = array();
+	$last = -1; $lastac = -1;
+	foreach ($matches as $key => $value) {
+		if ($last != -1) {
+			if ($matches[$last][0] == $value[0]) {
+				$ignore[] = $key;
+			} else if ($matches[$lastac][0] + $matches[$lastac][1] > $value[0]) {
+				$ignore[] = $key;
+			} else {
+				$lastac = $key;
+			}
+		} else {
+			$lastac = $key;
+		}
+		$last = $key;
+	}
+
+	$offset = 0;
+	foreach ($matches as $key => $value) {
+		if (in_array($key, $ignore))
+			continue;
+		$kw = substr($content, $matches[$key][0] + $offset, $matches[$key][1]);
+		$link = sprintf('<a href="%s">%s</a>', '/keyword/' . rawurlencode($kw), html_escape($kw));
+		$content = substr($content, 0, $matches[$key][0] + $offset) . $link . substr($content, $matches[$key][0] + $matches[$key][1] + $offset);
+		$offset += strlen($link) - $matches[$key][1];
+	}
+
+	/*
+	$matches = trie_filter_search_all($trie, $content);
+	$offset = 0;
+	for ($i = 0; $i < count($matches); $i++) {
+		if ($i > 0 && $matches[$i - 1][0] + $matches[$i - 1][1] > $matches[$i][0])
+			continue;
+		$kw = substr($content, $matches[$i][0] + $offset, $matches[$i][1]);
+		$link = sprintf('<a href="%s">%s</a>', '/keyword/' . rawurlencode($kw), html_escape($kw));
+		$content = substr($content, 0, $matches[$i][0] + $offset) . $link . substr($content, $matches[$i][0] + $matches[$i][1] + $offset);
+		$offset += strlen($link) - $matches[$i][1];
+	}
+	*/
+
         return nl2br($content, true);
     }
 };
@@ -125,8 +168,10 @@ $app->get('/', function (Request $req, Response $c) {
         "LIMIT $PER_PAGE ".
         "OFFSET $offset"
     );
+
+    $trie = $this->make_trie();
     foreach ($entries as &$entry) {
-        $entry['html']  = $this->htmlify($entry['description']);
+        $entry['html']  = $this->htmlify($trie, $entry['description']);
         if ($entry['stars'] === NULL) {
             $entry['stars'] = [];
         } else {
@@ -247,7 +292,7 @@ $app->get('/keyword/{keyword}', function (Request $req, Response $c) {
     , $keyword);
     if (empty($entry)) return $c->withStatus(404);
 
-    $entry['html'] = $this->htmlify($entry['description']);
+    $entry['html'] = $this->htmlify($this->make_trie(), $entry['description']);
     if ($entry['stars'] === NULL) {
         $entry['stars'] = [];
     } else {
@@ -305,15 +350,9 @@ $app->post('/stars', function (Request $req, Response $c) {
 });
 
 function is_spam_contents($content, $keyword) {
-    foreach(file(__DIR__ . 'spams.txt', FILE_IGNORE_NEW_LINES) as $spam_key) {
-        $info = explode(' ', $spam_key);
-        if ($info[1] == $keyword) {
-            if ($info[0] == '[OK]') {
-                return false;
-            } else {
-                return true;
-            }
-        }   
+    foreach(file('spams.txt', FILE_IGNORE_NEW_LINES) as $spam_key) {
+        if ($spam_key == "[OK] $keyword") return false;
+        if ($spam_key == "[NG] $keyword") return true;
     }
 
     $ua = new \GuzzleHttp\Client;
@@ -321,8 +360,7 @@ function is_spam_contents($content, $keyword) {
         'form_params' => ['content' => $content]
     ])->getBody();
     $data = json_decode($res, true);
-    $is_valid = $data['valid'];
-    if ($is_valid) {
+    if ($data['valid']) {
         file_put_contents('spams.txt', "[OK] $keyword\n", FILE_APPEND);
         return false;
     } else {
