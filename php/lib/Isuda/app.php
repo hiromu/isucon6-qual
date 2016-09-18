@@ -122,11 +122,10 @@ $mw = [];
 // compatible filter 'set_name'
 $mw['set_name'] = function ($req, $c, $next) {
     $user_id = $_SESSION['user_id'] ?? null;
+    $user_name = $_SESSION['user_name'] ?? null;
     if (isset($user_id)) {
         $this->get('stash')['user_id'] = $user_id;
-        $this->get('stash')['user_name'] = $this->dbh->select_one(
-            'SELECT name FROM user WHERE id = ?'
-            , $user_id);
+        $this->get('stash')['user_name'] = $user_name;
         if (!isset($this->get('stash')['user_name'])) {
             return $c->withStatus(403);
         }
@@ -229,6 +228,7 @@ $app->post('/register', function (Request $req, Response $c) {
     $user_id = register($this->dbh, $name, $pw);
 
     $_SESSION['user_id'] = $user_id;
+    $_SESSION['user_name'] = $name;
     return $c->withRedirect('/');
 });
 
@@ -259,6 +259,7 @@ $app->post('/login', function (Request $req, Response $c) {
     }
 
     $_SESSION['user_id'] = $row['id'];
+    $_SESSION['user_name'] = $name;
     return $c->withRedirect('/');
 });
 
