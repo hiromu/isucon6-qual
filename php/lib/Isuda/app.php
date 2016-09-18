@@ -288,12 +288,30 @@ $app->post('/stars', function (Request $req, Response $c) {
 });
 
 function is_spam_contents($content, $keyword) {
+    foreach(file(__DIR__ . 'spams.txt', FILE_IGNORE_NEW_LINES) as $spam_key) {
+        $info = explode(' ', $spam_key);
+        if ($info[1] == $keyword) {
+            if ($info[0] == '[OK]') {
+                return false;
+            } else {
+                return true;
+            }
+        }   
+    }
+
     $ua = new \GuzzleHttp\Client;
     $res = $ua->request('POST', config('isupam_origin'), [
         'form_params' => ['content' => $content]
     ])->getBody();
     $data = json_decode($res, true);
-    return !$data['valid'];
+    $is_valid = $data['valid'];
+    if ($is_valid) {
+        file_put_contents('spams.txt', "[OK] $keyword\n", FILE_APPEND);
+        return false;
+    } else {
+        file_put_contents('spams.txt', "[NG] $keyword\n", FILE_APPEND);
+        return true;
+    }
 }
 
 $app->run();
