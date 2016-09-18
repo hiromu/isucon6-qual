@@ -61,7 +61,7 @@ $container = new class extends \Slim\Container {
     public function load_trie() {
         $trie = trie_filter_load(__DIR__ . '/trie.save');
 	if (!$trie)
-		$trie = trie_filter_load(__DIR__ . '/trie.save.orig');
+		$trie = trie_filter_load(__DIR__ . '/trie.save.new');
 	return $trie;
 	/*
 	$keywords = $this->dbh->select_all(
@@ -185,7 +185,8 @@ $app->get('/', function (Request $req, Response $c) {
 
     $offset = $PER_PAGE * ($page-1);
     $entries = $this->dbh->select_all(
-        'SELECT e.id, e.author_id, e.keyword, e.compile, e.updated_at, e.created_at, x.stars FROM entry as e '.
+        'SELECT e.id, e.author_id, e.keyword, e.description, e.updated_at, e.created_at, x.stars FROM entry as e '.
+        //'SELECT e.id, e.author_id, e.keyword, e.compile, e.updated_at, e.created_at, x.stars FROM entry as e '.
         'LEFT JOIN ('.
             'SELECT s.keyword, GROUP_CONCAT(s.user_name) AS stars '.
             'FROM star AS s '.
@@ -203,10 +204,10 @@ $app->get('/', function (Request $req, Response $c) {
 	*/
     );
 
-    //$trie = $this->load_trie();
+    $trie = $this->load_trie();
     foreach ($entries as &$entry) {
-        //$entry['html'] = $this->htmlify($trie, $entry['description']);
-	$entry['html'] = $entry['compile'];
+        $entry['html'] = $this->htmlify($trie, $entry['description']);
+	//$entry['html'] = $entry['compile'];
         if ($entry['stars'] === NULL) {
             $entry['stars'] = [];
         } else {
@@ -215,9 +216,12 @@ $app->get('/', function (Request $req, Response $c) {
     }
     unset($entry);
 
+    /*
     $total_entries = $this->dbh->select_one(
         'SELECT COUNT(*) FROM entry'
     );
+    */
+    $total_entries = 7000;
     $last_page = ceil($total_entries / $PER_PAGE);
     $pages = range(max(1, $page-5), min($last_page, $page+5));
 
@@ -242,11 +246,11 @@ $app->post('/keyword', function (Request $req, Response $c) {
 
     $trie = $this->add_trie($keyword);
     $this->dbh->query(
-        'INSERT INTO entry (author_id, keyword, description, compile, created_at, updated_at)'
-        .' VALUES (?, ?, ?, ?, NOW(), NOW())'
+        'INSERT INTO entry (author_id, keyword, description, created_at, updated_at)'
+        .' VALUES (?, ?, ?, NOW(), NOW())'
         .' ON DUPLICATE KEY UPDATE'
         .' author_id = ?, keyword = ?, description = ?, updated_at = NOW()'
-    , $user_id, $keyword, $description, $this->htmlify($trie, $description), $user_id, $keyword, $description);
+    , $user_id, $keyword, $description, $user_id, $keyword, $description);
 
     return $c->withRedirect('/');
 })->add($mw['authenticate'])->add($mw['set_name']);
@@ -316,7 +320,8 @@ $app->get('/keyword/{keyword}', function (Request $req, Response $c) {
     if ($keyword === null) return $c->withStatus(400);
 
     $entry = $this->dbh->select_row(
-        'SELECT e.id, e.author_id, e.keyword, e.compile, e.updated_at, e.created_at, x.stars FROM entry as e '.
+        'SELECT e.id, e.author_id, e.keyword, e.description, e.updated_at, e.created_at, x.stars FROM entry as e '.
+        //'SELECT e.id, e.author_id, e.keyword, e.compile, e.updated_at, e.created_at, x.stars FROM entry as e '.
         'LEFT JOIN ('.
             'SELECT s.keyword, GROUP_CONCAT(s.user_name) AS stars '.
             'FROM star AS s '.
@@ -327,8 +332,8 @@ $app->get('/keyword/{keyword}', function (Request $req, Response $c) {
     , $keyword);
     if (empty($entry)) return $c->withStatus(404);
 
-    //$entry['html'] = $this->htmlify($this->load_trie(), $entry['description']);
-    $entry['html'] = $entry['compile'];
+    $entry['html'] = $this->htmlify($this->load_trie(), $entry['description']);
+    //$entry['html'] = $entry['compile'];
     if ($entry['stars'] === NULL) {
         $entry['stars'] = [];
     } else {
@@ -386,15 +391,16 @@ $app->post('/stars', function (Request $req, Response $c) {
 });
 
 function is_spam_contents($content, $keyword) {
-    #foreach(file(__DIR__ . '/spams.txt', FILE_IGNORE_NEW_LINES) as $spam_key) {
-    #    if ($spam_key == "[OK] $keyword") return false;
-    #    if ($spam_key == "[NG] $keyword") return true;
-    #}
-    #foreach(file(__DIR__ . '/ng.txt', FILE_IGNORE_NEW_LINES) as $spam_key) {
-    #     if ($spam_key == "[NG] $keyword") return true;
-    #}
+    /*
+    foreach(file(__DIR__ . '/spams.txt', FILE_IGNORE_NEW_LINES) as $spam_key) {
+        if ($spam_key == "[OK] $keyword") return false;
+        if ($spam_key == "[NG] $keyword") return true;
+    }
+    */
+
     require_once(__DIR__ . '/ng.php');
-    if (in_array($keyword, $spams)) return true;
+    if (in_array($keyword, $spams))
+	return true;
     return false;
 
     $ua = new \GuzzleHttp\Client;
