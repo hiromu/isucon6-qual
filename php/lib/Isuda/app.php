@@ -122,14 +122,19 @@ $app->get('/', function (Request $req, Response $c) {
 
     $offset = $PER_PAGE * ($page-1);
     $entries = $this->dbh->select_all(
-        'SELECT * FROM entry '.
+        'SELECT e.*, x.stars FROM entry as e '.
+        'LEFT JOIN ('.
+            'SELECT s.keyword, GROUP_CONCAT(s.user_name) AS stars '.
+            'FROM star AS s '.
+            'GROUP BY s.keyword'.
+	') AS x '.
+	'ON x.keyword = e.keyword '.
         'ORDER BY updated_at DESC '.
         "LIMIT $PER_PAGE ".
         "OFFSET $offset"
     );
     foreach ($entries as &$entry) {
         $entry['html']  = $this->htmlify($entry['description']);
-        $entry['stars'] = $this->load_stars($entry['keyword']);
     }
     unset($entry);
 
