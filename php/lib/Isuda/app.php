@@ -135,6 +135,11 @@ $app->get('/', function (Request $req, Response $c) {
     );
     foreach ($entries as &$entry) {
         $entry['html']  = $this->htmlify($entry['description']);
+        if ($entry['stars'] === NULL) {
+            $entry['stars'] = [];
+        } else {
+            $entry['stars'] = explode(',', $entry['stars']);
+        }
     }
     unset($entry);
 
