@@ -154,7 +154,7 @@ $app->post('/keyword', function (Request $req, Response $c) {
     $user_id = $this->get('stash')['user_id'];
     $description = $req->getParsedBody()['description'];
 
-    if (is_spam_contents($description) || is_spam_contents($keyword)) {
+    if (is_spam_contents($keyword . $description)) {
         return $c->withStatus(400)->write('SPAM!');
     }
     $this->dbh->query(
