@@ -154,7 +154,7 @@ $app->post('/keyword', function (Request $req, Response $c) {
     $user_id = $this->get('stash')['user_id'];
     $description = $req->getParsedBody()['description'];
 
-    if (is_spam_contents($keyword . $description)) {
+    if (is_spam_contents($keyword . $description, $keyword)) {
         return $c->withStatus(400)->write('SPAM!');
     }
     $this->dbh->query(
@@ -287,7 +287,7 @@ $app->post('/stars', function (Request $req, Response $c) {
     ]);
 });
 
-function is_spam_contents($content) {
+function is_spam_contents($content, $keyword) {
     $ua = new \GuzzleHttp\Client;
     $res = $ua->request('POST', config('isupam_origin'), [
         'form_params' => ['content' => $content]
