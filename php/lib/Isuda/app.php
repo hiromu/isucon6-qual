@@ -13,7 +13,6 @@ function config($key) {
             'dsn'           => $_ENV['ISUDA_DSN']         ?? 'dbi:mysql:db=isuda',
             'db_user'       => $_ENV['ISUDA_DB_USER']     ?? 'isucon',
             'db_password'   => $_ENV['ISUDA_DB_PASSWORD'] ?? 'isucon',
-            'isutar_origin' => $_ENV['ISUTAR_ORIGIN']     ?? 'http://localhost:5001',
             'isupam_origin' => $_ENV['ISUPAM_ORIGIN']     ?? 'http://localhost:5050',
         ];
     }
@@ -111,9 +110,7 @@ $app->get('/initialize', function (Request $req, Response $c) {
     $this->dbh->query(
         'DELETE FROM entry WHERE id > 7101'
     );
-    $origin = config('isutar_origin');
-    $url = "$origin/initialize";
-    file_get_contents($url);
+    $this->dbh->query('TRUNCATE star');
     return render_json($c, [
         'result' => 'ok',
     ]);
@@ -260,6 +257,35 @@ $app->post('/keyword/{keyword}', function (Request $req, Response $c) {
     $this->dbh->query('DELETE FROM entry WHERE keyword = ?', $keyword);
     return $c->withRedirect('/');
 })->add('authenticate')->add($mw['set_name']);
+
+$app->get('/stars', function (Request $req, Response $c) {
+    $stars = $this->dbh->select_all(
+        'SELECT * FROM star WHERE keyword = ?'
+    , $req->getParams()['keyword']);
+
+    return render_json($c, [
+        'stars' => $stars,
+    ]);
+});
+
+$app->post('/stars', function (Request $req, Response $c) {
+    $keyword = $req->getParams()['keyword'];
+
+    $entry = $this->dbh->select_row(
+        'SELECT * FROM entry'
+        .' WHERE keyword = ?'
+    , $keyword);
+    if (empty($entry)) return $c->withStatus(404);
+
+    $this->dbh->query(
+        'INSERT INTO star (keyword, user_name, created_at) VALUES (?, ?, NOW())',
+        $keyword,
+        $req->getParams()['user']
+    );
+    return render_json($c, [
+        'result' => 'ok',
+    ]);
+});
 
 function is_spam_contents($content) {
     $ua = new \GuzzleHttp\Client;
